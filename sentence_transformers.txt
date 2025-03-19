@@ -1,0 +1,1430 @@
+----------------------------build embedding start----------------------------------------------------------
+FROM python:3.10-slim
+
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple  //靠谱
+RUN pip install --upgrade pip
+WORKDIR /app
+
+RUN pip install transformers \
+    && pip3 install torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install sentence-transformers \
+    && pip install Flask
+
+
+
+-----------------成功的dockerfile-------
+FROM python:3.10-slim
+
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app
+
+COPY sentence_transformers-3.4.1-py3-none-any.whl .
+COPY transformers-4.49.0-py3-none-any.whl .
+COPY flask-3.1.0-py3-none-any.whl .
+COPY torch-2.6.0-cp310-cp310-manylinux1_x86_64.whl .
+
+RUN pip install torch-2.6.0-cp310-cp310-manylinux1_x86_64.whl \
+    && pip install transformers-4.49.0-py3-none-any.whl \
+    && pip install flask-3.1.0-py3-none-any.whl \
+    && pip install sentence_transformers-3.4.1-py3-none-any.whl
+-----------------
+
+ docker build --network=host -t yytest_sentence_transformer:latest .
+
+-------------------------
+国内python包
+https://pypi.tuna.tsinghua.edu.cn/simple/torch/
+sentence_transformers-3.4.1-py3-none-any.whl   transformers-4.49.0-py3-none-any.whl
+flask-3.1.0-py3-none-any.whl  torch-2.6.0-cp310-cp310-manylinux1_x86_64.whl
+-------------------------------------------
+
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("hkunlp/instructor-large")
+
+-----------------------------------------------------------
+
+from flask import Flask, request, jsonify
+from sentence_transformers import SentenceTransformer, util
+
+app = Flask(__name__)
+model = SentenceTransformer('/app/distiluse-base-multilingual-cased-v1')
+
+def encode_text(texts):    
+    # Encode the texts and convert to list
+    embeddings = model.encode(texts, convert_to_tensor=True, show_progress_bar=False)
+    embeddings_list = embeddings.tolist()
+    return embeddings_list
+
+@app.route('/cal_distance', methods=['POST'])
+def cal_distance():
+    params = request.json
+    sentence_1 = params['sentence_1']
+    sentence_2 = params['sentence_2']
+    embedding_1 = encode_text([sentence_1])[0]
+    embedding_2 = encode_text([sentence_2])[0]
+    distance = util.pytorch_cos_sim(embedding_1, embedding_2)
+    print('sentence_1:', sentence_1, '|| sentence_2:' , sentence_2 , '===distance:', distance)
+    return jsonify({'status': 'ok'})
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+
+------------------------改配之后-------------------------------------
+from flask import Flask, request, jsonify
+from sentence_transformers import SentenceTransformer, util
+
+app = Flask(__name__)
+model = SentenceTransformer('/app/bge-large-zh-v1.5')
+
+def encode_text(texts):
+    # Encode the texts and convert to list
+    embeddings = model.encode(texts, convert_to_tensor=True, show_progress_bar=False)
+    embeddings_list = embeddings.tolist()
+    return embeddings_list
+
+@app.route('/cal_distance', methods=['POST'])
+def cal_distance():
+    params = request.json
+    sentence_1 = params['sentence_1']
+    sentence_2 = params['sentence_2']
+    embedding_1 = encode_text([sentence_1])[0]
+    embedding_2 = encode_text([sentence_2])[0]
+    distance = util.pytorch_cos_sim(embedding_1, embedding_2)
+    print('sentence_1:', sentence_1, '|| sentence_2:' , sentence_2 , '===distance:', distance)
+    return jsonify({'status': 'ok'})
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=35000)
+
+
+
+
+
+---------------------------------------
+原始
+
+docker run \
+    -p 5000:5000 \
+    -v /home/my_user/lib/ddy/sentence_transformer/distiluse-base-multilingual-cased-v1/:/app/distiluse-base-multilingual-cased-v1/ \
+    -v /home/my_user/lib/ddy/sentence_transformer/code/main.py:/app/ \
+    --name ddy \
+    ddy_sentence_transformer \
+    python -u main.py
+----------------------------------------------------
+在10.68.23.28节点  实测
+docker run \
+    --network=host \
+	-v /root/yangyong/:/app/ \
+    yytest_sentence_transformer:latest \
+    python -u /app/main.py
+
+
+
+-------------------网站数据  用的模型不同-------------------------------
+
+data = {"sentence_1": '教师', "sentence_2": '老师'}
+requests.post('http://10.26.120.58:5000/cal_distance', json=data)
+
+
+sentence_1: 教师 || sentence_2: 老师 ===distance: tensor([[0.9625]])
+
+
+
+-------------实测--------
+curl -X POST --header "Content-Type: application/json" -d '{"sentence_1":"教师","sentence_2": "老师"}' http://127.0.0.1:35000/cal_distance
+
+sentence_1: 教师 || sentence_2: 老师 ===distance: tensor([[0.8651]])   多次计算结果一样
+
+
+
+127.0.0.1 - - [27/Feb/2025 07:09:51] "POST / HTTP/1.1" 404 -
+sentence_1: 教师 || sentence_2: 老师 ===distance: tensor([[0.8651]])
+127.0.0.1 - - [27/Feb/2025 07:10:14] "POST /cal_distance HTTP/1.1" 200 -
+sentence_1: 教师 || sentence_2: 老师 ===distance: tensor([[0.8651]])
+127.0.0.1 - - [27/Feb/2025 07:11:24] "POST /cal_distance HTTP/1.1" 200 -
+sentence_1: 教师 || sentence_2: 老师 ===distance: tensor([[0.8651]])
+127.0.0.1 - - [27/Feb/2025 07:11:36] "POST /cal_distance HTTP/1.1" 200 -
+
+
+
+----------------------------build embedding end----------------------------------------------------------
+
+
+
+
+----------------------------build rerank start----------------------------------------------------------
+
+
+
+FROM python:3.10-slim
+
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app
+
+COPY sentence_transformers-3.4.1-py3-none-any.whl .
+COPY transformers-4.49.0-py3-none-any.whl .
+COPY flask-3.1.0-py3-none-any.whl .
+COPY torch-2.6.0-cp310-cp310-manylinux1_x86_64.whl .
+
+RUN pip install torch-2.6.0-cp310-cp310-manylinux1_x86_64.whl \
+    && pip install transformers-4.49.0-py3-none-any.whl \
+    && pip install flask-3.1.0-py3-none-any.whl \
+    && pip install sentence_transformers-3.4.1-py3-none-any.whl \
+	&& pip install -U FlagEmbedding
+
+--------精简版-------------------------------------------------------------------------
+
+FROM yytest_sentence_transformer:latest
+
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app
+
+RUN pip install -U FlagEmbedding
+RUN pip install gevent
+RUN pip install gunicorn
+
+
+
+
+
+
+
+----------------------------build rerank end----------------------------------------------------------
+
+
+
+from flask import Flask, request, jsonify
+from sentence_transformers import SentenceTransformer, util
+from FlagEmbedding import FlagReranker
+
+app = Flask(__name__)
+model = SentenceTransformer('/app/bge-large-zh-v1.5')
+
+def encode_text(texts):
+    # Encode the texts and convert to list
+    embeddings = model.encode(texts, convert_to_tensor=True, show_progress_bar=False)
+    embeddings_list = embeddings.tolist()
+    return embeddings_list
+
+@app.route('/cal_distance', methods=['POST'])
+def cal_distance():
+    params = request.json
+    sentence_1 = params['sentence_1']
+    sentence_2 = params['sentence_2']
+    embedding_1 = encode_text([sentence_1])[0]
+    embedding_2 = encode_text([sentence_2])[0]
+    distance = util.pytorch_cos_sim(embedding_1, embedding_2)
+    print('sentence_1:', sentence_1, '|| sentence_2:' , sentence_2 , '===distance:', distance)
+    return jsonify({'status': 'ok'})
+
+@app.route('/rerank', methods=['POST'])
+def rerank():
+    reranker = FlagReranker('/app/bge-reranker-large', use_fp16=True) # Setting use_fp16 to True speeds up computation with a slight performance degradation
+    score = reranker.compute_score(['query', 'passage'])
+    print(score)
+    scores = reranker.compute_score([['what is panda?', 'hi'], ['what is panda?', 'The giant panda (Ailuropoda melanoleuca), sometimes called a panda bear or simply panda, is a bear species endemic to China.']])
+    print(scores)
+    return jsonify({'status': 'ok'})
+	
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=35000)
+
+--------------------------------------------------
+ docker build --network=host -t yytest_sentence_reranker:latest .
+--------------------------------------------------
+docker run \
+    --network=host \
+	-v /root/yangyong/sentence_transformer_rerank/:/app/ \
+    yytest_sentence_reranker:latest \
+    python -u /app/main.py
+
+------------------------------------------------------------
+curl -X POST --header "Content-Type: application/json" -d '{"sentence_1":"教师","sentence_2": "老师"}' http://127.0.0.1:35000/rerank
+
+You're using a XLMRobertaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+[-1.51329505443573]
+[-5.608544826507568, 5.762268543243408]
+127.0.0.1 - - [28/Feb/2025 09:14:43] "POST /rerank HTTP/1.1" 200 -
+You're using a XLMRobertaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+[-1.51329505443573]
+[-5.608544826507568, 5.762268543243408]
+
+多次测试得分也相同
+
+
+测试embedding
+curl -X POST --header "Content-Type: application/json" -d '{"sentence_1":"Helm 要在 Linux 节点上运行。 如果群集中有 Windows Server 节点，则必须确保 Helm Pod 仅计划在 Linux 节点上运行。 还需要确保所安装的所有 Helm 图表也计划在正确的节点上运行。 本文中的命令使用节点选择器，确保将 Pod 安排到正确的节点，但并非所有 Helm 图表都可以公开节点选择器。 还可以考虑使用群集上的其他选项，例如排斥","sentence_2": "水平文字检测的思路较为直观，与常规的目标检测类似，通过（x,y,w,h）确定四边形，由于文本框的形状比较特征，因此针对one-stage object detection 算法，需要调整anchor的尺寸，回归卷积层的尺寸，常见的算法包含TextBoxes。为了兼容垂直文字检测，算法模型中可简单增加竖直形状的anchor。对于任意角度的文本检测，这里需要水平文字检测的基础上，修改文本框的表示方式，一般来说，可以通过三种方式去表示一个文本框，分别是"}' http://127.0.0.1:35000/embedding
+
+
+测试rerank
+
+
+-----------------------------sss--------------------------------------
+curl -X POST http://127.0.0.1:35000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Hello, world!",
+    "model": "inspur-bge-large-zh-v1.5"
+  }'
+
+------------------------------
+docker build --network=host -t yytest_sentence_reranker:v1 .
+
+docker run \
+    --network=host \
+	-v /root/yangyong/sentence_transformer_rerank/:/app/ \
+    yytest_sentence_reranker:v1 \
+    python -u /app/main.py
+	
+	
+curl -X POST http://127.0.0.1:35000/v1/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is deep learning?",
+    "documents": [
+      "Deep learning is a machine learning technique...",
+      "Newton discovered the laws of motion...",
+      "Neural networks are inspired by biological systems..."
+    ],
+    "model": "inspur-bge-reranker-large",
+    "top_n": 2
+  }'
+  
+
+gunicorn --workers 3 --bind 0.0.0.0:8000 app:app
+这里的 --workers 3 表示启动 3 个工作进程来处理请求（根据你的服务器 CPU 核心数来调整）。--bind 0.0.0.0:8000 表示绑定到所有可用的网络接口上的 8000 端口。app:app 表示 Flask 应用的可调用对象，其中第一个 app 是文件名（不包含 .py 扩展名），第二个 app 是 Flask 应用实例的变量名
+
+高级版dockerfile
+----------------------
+FROM yytest_sentence_transformer:latest
+
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app
+
+RUN pip install -U FlagEmbedding
+RUN pip install gevent
+RUN pip install gunicorn
+
+# 暴露端口
+EXPOSE 35000
+
+# 启动命令 (使用 gevent worker)
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "4", \
+    "--timeout", "120", \
+    "--worker-class", "gevent", \
+    "main:app"]
+
+
+docker build --network=host -t yytest_sentence_reranker:v1 .
+
+docker run \
+    --network=host \
+	-v /root/yangyong/sentence_transformer_rerank/:/app/ \
+    yytest_sentence_reranker:v1 
+
+
+curl -X POST http://10.68.23.173:35000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Hello, world!",
+    "model": "inspur-bge-large-zh-v1.5"
+  }'
+  
+curl -X POST http://10.68.23.173:35000/v1/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is deep learning?",
+    "documents": [
+      "Deep learning is a machine learning technique...",
+      "Newton discovered the laws of motion...",
+      "Neural networks are inspired by biological systems..."
+    ],
+    "model": "inspur-bge-reranker-large",
+    "top_n": 2
+  }'
+  curl -X POST http://100.18.162.205:35000/v1/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is deep learning?",
+    "documents": [
+      "Deep learning is a machine learning technique...",
+      "Newton discovered the laws of motion...",
+      "Neural networks are inspired by biological systems..."
+    ],
+    "model": "inspur-bge-reranker-large",
+    "top_n": 2
+  }'
+  curl -X POST http://100.18.162.205:35000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Hello, world!",
+    "model": "inspur-bge-large-zh-v1.5"
+  }'
+-------------------deployment版--------------------------------
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+  name: reranker
+  namespace: kube-system
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: reranker
+  strategy:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: reranker
+    spec:
+      containers:
+      - env:
+        - name: logger.level
+          value: Info
+        image: yytest_sentence_reranker:v1
+        imagePullPolicy: IfNotPresent
+        name: reranker
+        volumeMounts:
+        - mountPath: /app/
+          name: app-data
+        ports:
+        - containerPort: 35000
+          name: svc-port
+          protocol: TCP
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            cpu: "16"
+            memory: 32Gi
+          requests:
+            cpu: 10m
+            memory: 128Mi
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Equal
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Equal
+      volumes:
+      - hostPath:
+          path: /root/yangyong/
+          type: DirectoryOrCreate
+        name: app-data
+
+----------------------------------
+纯cpu推理 240k的txt文件 16核打满  并发能力不行  差不多推了一小时
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+1502415 root      20   0   14.9g   2.1g   1.4g R 481.3   0.2  29:38.68 gunicorn
+1502349 root      20   0   17.7g   3.9g   2.6g R 394.4   0.4  28:07.47 gunicorn
+1502348 root      20   0   17.8g   3.8g   2.6g R 363.0   0.4  27:35.50 gunicorn
+1502299 root      20   0   17.8g   3.9g   2.6g S 361.3   0.4  29:37.45 gunicorn
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   16008m       4779Mi
+
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   16008m       4779Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   16013m       4809Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   16013m       4809Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   16013m       4809Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   15960m       4828Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   15960m       4828Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   15960m       4828Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   15960m       4828Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   15960m       4828Mi
+[root@node3 ~]# kubectl top pod -n kube-system reranker-668f677bbc-j96vx
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-668f677bbc-j96vx   15960m       4828Mi
+
+
+开到64核 差不多20分钟完成 进度条前面一直0% 后边很快
+root@node3 yangyong]#
+[root@node3 yangyong]# kubectl top pod -n kube-system reranker-56b4d9d9d5-cqt7j
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-56b4d9d9d5-cqt7j   63931m       3229Mi
+[root@node3 yangyong]# kubectl top pod -n kube-system reranker-56b4d9d9d5-cqt7j
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-56b4d9d9d5-cqt7j   64003m       3308Mi
+[root@node3 yangyong]# watch kubectl top pod -n kube-system reranker-56b4d9d9d5-cqt7j
+[root@node3 yangyong]# kubectl top pod -n kube-system reranker-56b4d9d9d5-cqt7j
+NAME                        CPU(cores)   MEMORY(bytes)
+reranker-56b4d9d9d5-cqt7j   0m           3839Mi
+
+
+---------------------------
+
+
+docker run \
+--network=host \
+-v /data/model/:/app/ \
+10.68.23.173:30012/library/incloud_sentence_transformer:v1
+
+--------------------------------------------
+FROM yytest_sentence_reranker:v1
+
+
+WORKDIR /usr/local/bin/
+
+COPY main.py /usr/local/bin/
+
+# 暴露端口
+EXPOSE 35000
+
+# 启动命令 (使用 gevent worker)
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "4", \
+    "--timeout", "120", \
+    "--worker-class", "gevent", \
+    "main:app"]
+-------------------------------------
+
+# Namespace
+#apiVersion: v1
+#kind: Namespace
+#metadata:
+#  name: incloud-dify
+
+#---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: incloud-text-model
+  namespace: incloud-dify
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: svc-port
+    nodePort: 35000
+    port: 35000
+    protocol: TCP
+    targetPort: 35000
+  selector:
+    app.kubernetes.io/name: reranker
+  sessionAffinity: None
+  type: NodePort
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+  name: reranker
+  namespace: incloud-dify
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: reranker
+  strategy:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: reranker
+    spec:
+      containers:
+      - env:
+        - name: logger.level
+          value: Info
+        image: cr.incloudos.com:30012/library/incloud_sentence_transformer:v1
+        imagePullPolicy: IfNotPresent
+        name: reranker
+        volumeMounts:
+        - mountPath: /app/
+          name: app-data
+        ports:
+        - containerPort: 35000
+          name: svc-port
+          protocol: TCP
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            cpu: 64
+            memory: 16Gi
+          requests:
+            cpu: 10m
+            memory: 128Mi
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Equal
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Equal
+      volumes:
+      - hostPath:
+          path: /data/model/
+          type: DirectoryOrCreate
+        name: app-data
+
+
+
+
+--------------perf benchmark-----------
+
+docker run -it \
+    --network=host \
+	-v /root/yangyong/sentence_transformer_rerank/:/app/ \
+    yytest_sentence_bench:v1 bash
+
+
+
+
+------------------------------------------
+docker cp yytestbenchv2.py 1d99469f285a:/usr/local/bin/
+
+
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：5
+- 总请求量：50
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：15600
+3. 令牌速率：24.6 tokens/秒
+4. 首Token延迟(平均)：12660.1ms
+5. 延迟分布：
+   - P50：13101.4ms
+   - P95：19136.6ms
+   - P99：20507.6ms
+6. 系统吞吐量：0.1 req/s
+================================
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：50
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：15600
+3. 令牌速率：1555.2 tokens/秒
+4. 首Token延迟(平均)：200.6ms
+5. 延迟分布：
+   - P50：193.8ms
+   - P95：237.7ms
+   - P99：315.1ms
+6. 系统吞吐量：5.0 req/s
+================================
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：1557.5 tokens/秒
+4. 首Token延迟(平均)：200.3ms
+5. 延迟分布：
+   - P50：192.9ms
+   - P95：247.5ms
+   - P99：334.6ms
+6. 系统吞吐量：5.0 req/s
+================================
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：2
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：423.2 tokens/秒
+4. 首Token延迟(平均)：737.3ms
+5. 延迟分布：
+   - P50：484.5ms
+   - P95：2152.9ms
+   - P99：3682.0ms
+6. 系统吞吐量：1.4 req/s
+================================
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：2
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：458.9 tokens/秒
+4. 首Token延迟(平均)：679.9ms
+5. 延迟分布：
+   - P50：511.8ms
+   - P95：1700.3ms
+   - P99：3188.4ms
+6. 系统吞吐量：1.5 req/s
+================================
+
+
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：10
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：57.0%
+2. 总处理token数：88920
+3. 令牌速率：13.5 tokens/秒
+4. 首Token延迟(平均)：13165.6ms
+5. 延迟分布：
+   - P50：15280.6ms
+   - P95：29257.8ms
+   - P99：29849.8ms
+6. 系统吞吐量：0.0 req/s
+================================
+并发性能很差   需要优化
+
+
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：2
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：396.1 tokens/秒
+4. 首Token延迟(平均)：787.7ms
+5. 延迟分布：
+   - P50：544.3ms
+   - P95：2108.2ms
+   - P99：4030.4ms
+6. 系统吞吐量：1.3 req/s
+================================
+注：测试结果受网络环境和API速率限制影响
+
+
+# 启动命令 (使用 gevent worker)
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "1", \
+    "--threads", "100", \
+    "--timeout", "120", \
+    "--worker-class", "gevent", \
+    "main:app"]
+修改work数为1   发现处理效率与并发数无关  都在0.18s上下  cpu占用最大在30核
+
+work数为4 单个请求处理效率可能超过15s  cpu打满
+
+因此高并发下效率变低，应该跟gunicorn启动worker数过多导致cpu资源争抢有关
+过多的 worker 会导致进程切换开销增加，可能引发 CPU 资源争抢，实际性能可能下降
+
+============进一步调优================
+
+对于 CPU 密集型任务（如机器学习推理、数值计算），需最大化利用 CPU 核心并减少并发竞争，配置原则如下：
+
+1. Worker 类型选择
+推荐使用 sync 同步模式：每个 worker 进程独立占用一个 CPU 核心，避免因线程切换和 GIL 导致的性能损耗。
+避免使用 gthread 或协程模式：线程和协程在 CPU 密集型任务中无法提升并行效率，反而可能因资源竞争降低性能。
+
+Gunicorn 的 worker 数量和 thread 数量之间的关系及其在 CPU 密集型任务中的配置策略，需结合其并发模型和任务特性综合优化。以下是具体分析：
+
+Worker 数与 Thread 数的关系
+并发计算逻辑
+默认同步模式（sync）：每个 worker 进程在同一时间仅处理一个请求，此时最大并发数等于 worker 数量。
+线程模式（gthread）：每个 worker 可生成多个线程，此时最大并发数为 worker 数 × thread 数。例如，配置 workers=4 和 threads=2 时，并发数为 8。
+协程模式（gevent/eventlet）：单 worker 通过协程处理高并发请求，此时并发数由 --worker-connections 参数控制，与线程无关。
+资源占用与性能权衡
+进程 vs 线程：
+进程独立运行，无内存共享，适合规避 Python 的全局解释器锁（GIL）限制，但内存消耗更高15。
+线程共享进程内存，需处理并发安全问题，且受 GIL 影响，多线程在 CPU 密集型任务中无法真正并行
+
+
+
+
+Python 的全局解释器锁（Global Interpreter Lock，GIL）是 CPython 解释器的核心机制，其本质是一个互斥锁，用于确保同一时刻仅有一个线程能够执行 Python 字节码14。它的设计初衷是解决多线程环境下内存管理的复杂性问题，尤其是引用计数的线程安全性25。
+
+一、GIL 的作用
+保证线程安全
+Python 使用引用计数机制管理内存，但直接操作引用计数的增减在多线程环境下可能引发数据竞争。GIL 通过强制单线程执行字节码，避免了多线程同时修改引用计数导致的内存泄漏或对象状态错误124。
+简化解释器实现
+GIL 减少了 CPython 解释器在多线程场景下的锁设计复杂度。开发者无需为每个对象或操作单独加锁，降低了内存管理的实现难度25。
+提升单线程性能
+在单线程场景中，GIL 避免了线程切换和锁竞争的开销，使得单线程程序的执行效率更高4。
+二、GIL 的影响
+限制多线程并行能力
+由于 GIL 的存在，即使程序运行在多核 CPU 上，Python 多线程也无法实现真正的并行计算。对于 CPU 密集型任务（如数值计算），多线程性能可能低于单线程156。例如，两个线程执行计算任务时，需交替获取 GIL，无法同时利用两个 CPU 核心4。
+对 I/O 密集型任务的优化
+当线程执行 I/O 操作（如文件读写、网络请求）时，会主动释放 GIL，允许其他线程运行。因此，I/O 密集型任务仍可通过多线程提升整体效率15。
+线程切换的潜在开销
+GIL 的释放与获取涉及线程上下文切换，频繁切换可能导致额外性能损耗（尤其在 CPU 密集型任务中）45。
+三、GIL 的底层原理
+锁的获取与释放：线程在执行字节码前需获取 GIL，执行一定数量的指令（如 100 个字节码或遇到 I/O 操作）后主动释放。Python 3 后引入的「时间片」机制（约 15 毫秒）强制线程释放 GIL，避免单个线程长期占用锁46。
+多核场景的局限性：即使线程分布在不同 CPU 核心上，同一时间仅有一个核心能执行 Python 代码，其他核心处于空闲状态45。
+四、应对 GIL 限制的方案
+多进程替代多线程
+使用 multiprocessing 模块创建多个独立进程，每个进程拥有独立的 GIL，可充分利用多核 CPU56。
+C 扩展与异步编程
+通过 C 扩展模块绕过 GIL（如 NumPy 的核心计算部分），或使用 asyncio 实现协程异步处理 I/O 密集型任务56。
+其他解释器实现
+Jython（基于 JVM）和 IronPython（基于 .NET）等解释器未采用 GIL，但兼容性和生态支持较弱6。
+总结
+GIL 是 CPython 解释器的核心机制，通过牺牲多线程并行性换取了线程安全和实现简化。它在单线程和 I/O 密集型任务中表现良好，但成为 CPU 密集型任务的性能瓶颈。开发者需根据任务类型选择多进程、异步编程或 C 扩展等方案规避其限制
+
+
+
+综上
+# 启动命令 (cpu密集型  不使用 gevent也不使用多thread  可以适当调高worker)
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "1", \
+    "--timeout", "120", \
+    "main:app"]
+
+
+docker build --network=host -t yytest_sentence_reranker:v1 -f Dockerfile-rerank .
+
+docker run \
+    --network=host \
+	-v /root/yangyong/sentence_transformer_rerank/:/app/ \
+    yytest_sentence_reranker:v1 
+
+
+
+
+FROM yytest_sentence_bench:v1
+
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app
+
+# 暴露端口
+EXPOSE 35000
+
+# 启动命令 (使用 gevent worker)
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "1", \
+    "--timeout", "120", \
+    "main:app"]
+
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：17.3 tokens/秒
+4. 首Token延迟(平均)：18029.8ms
+5. 延迟分布：
+   - P50：19844.9ms
+   - P95：20401.9ms
+   - P99：20537.1ms
+6. 系统吞吐量：0.1 req/s
+================================
+# 启动命令 (使用 gevent worker)
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "2", \
+    "--timeout", "120", \
+    "main:app"]
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：31.2%
+2. 总处理token数：48672
+3. 令牌速率：14.7 tokens/秒
+4. 首Token延迟(平均)：6642.0ms
+5. 延迟分布：
+   - P50：0.0ms
+   - P95：29258.6ms
+   - P99：29819.2ms
+6. 系统吞吐量：0.0 req/s
+================================
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "1", \
+    "--threads", "100", \
+    "--timeout", "120", \
+    "main:app"]
+
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：80.6%
+2. 总处理token数：125736
+3. 令牌速率：25.4 tokens/秒
+4. 首Token延迟(平均)：9891.3ms
+5. 延迟分布：
+   - P50：11858.1ms
+   - P95：19603.7ms
+   - P99：19909.4ms
+6. 系统吞吐量：0.1 req/s
+================================
+docker run -d -p 5000:5000 your_image_name gunicorn --bind 0.0.0.0:5000 --workers 4 app:app
+
+docker run \
+    --network=host \
+	-v /root/yangyong/:/app/ \
+    yytest_sentence_reranker:v1 \
+	gunicorn --bind 0.0.0.0:35000 --workers 1 --threads 10 main:app
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：30.4%
+2. 总处理token数：47424
+3. 令牌速率：18.3 tokens/秒
+4. 首Token延迟(平均)：5184.2ms
+5. 延迟分布：
+   - P50：0.0ms
+   - P95：25284.6ms
+   - P99：28935.3ms
+6. 系统吞吐量：0.1 req/s
+================================
+timeout参数默认30s   推荐配上   不然并发数超过server处理能力后会排队   排队时间长了会error
+客户端也要调整 response = requests.post(API_URL, headers=headers, json=payload, timeout=180)
+docker run \
+    --network=host \
+	-v /root/yangyong/:/app/ \
+    yytest_sentence_reranker:v1 \
+	gunicorn --bind 0.0.0.0:35000 --workers 1 --threads 10 --timeout 180 main:app
+	
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：9.4 tokens/秒
+4. 首Token延迟(平均)：33142.6ms
+5. 延迟分布：
+   - P50：36629.6ms
+   - P95：38564.3ms
+   - P99：39143.7ms
+6. 系统吞吐量：0.0 req/s
+================================
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：10
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：85.4 tokens/秒
+4. 首Token延迟(平均)：3652.7ms
+5. 延迟分布：
+   - P50：3650.4ms
+   - P95：4316.4ms
+   - P99：4605.6ms
+6. 系统吞吐量：0.3 req/s
+================================
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：500
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：1449.1 tokens/秒
+4. 首Token延迟(平均)：215.3ms
+5. 延迟分布：
+   - P50：213.3ms
+   - P95：230.5ms
+   - P99：256.5ms
+6. 系统吞吐量：4.6 req/s
+=============================
+
+
+
+Python 的 ThreadPoolExecutor 的 submit 方法执行效率与 max_workers 参数的关系取决于任务类型和系统资源。以下是具体分析：
+
+1. submit 方法的本质
+submit 负责将任务提交到线程池的任务队列，由后台线程池的 max_workers 个线程从队列中取出任务并执行。
+submit 本身的执行速度通常很快（仅将任务放入队列），但若任务生成速度远超线程池处理速度，队列可能积压，导致主线程因队列满而阻塞。
+
+
+对于ThreadPoolExecutor来说  100并发就是启动100个worker   但每个worker是一个一个请求的顺序执行
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 总耗时：177.56193828600226
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：9.7 tokens/秒
+4. 首Token延迟(平均)：32308.0ms
+5. 延迟分布：
+   - P50：35307.1ms
+   - P95：36496.8ms
+   - P99：36777.8ms
+6. 系统吞吐量：0.0 req/s
+================================
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：500
+- 总耗时：106.94245059399691
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：1459.6 tokens/秒
+4. 首Token延迟(平均)：213.8ms
+5. 延迟分布：
+   - P50：212.0ms
+   - P95：227.0ms
+   - P99：257.3ms
+6. 系统吞吐量：4.7 req/s
+================================
+调整启动参数  取消thread  能占30核左右
+ docker run     --network=host -v /root/yangyong/:/app/     yytest_sentence_reranker:v1 gunicorn --bind 0.0.0.0:35000 --workers 1  --timeout 180 main:app
+
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：500
+- 总耗时：94.33857664100651
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：1654.6 tokens/秒
+4. 首Token延迟(平均)：188.6ms
+5. 延迟分布：
+   - P50：180.6ms
+   - P95：251.4ms
+   - P99：369.5ms
+6. 系统吞吐量：5.3 req/s
+================================
+Embedding接口性能测试报告-10并发
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：10
+- 总请求量：500
+- 总耗时：96.95105569400039
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：162.3 tokens/秒
+4. 首Token延迟(平均)：1922.5ms
+5. 延迟分布：
+   - P50：1882.0ms
+   - P95：2191.0ms
+   - P99：2408.0ms
+6. 系统吞吐量：0.5 req/s
+================================
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 总耗时：94.27380588200322
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：18.4 tokens/秒
+4. 首Token延迟(平均)：16975.5ms
+5. 延迟分布：
+   - P50：18742.0ms
+   - P95：19348.7ms
+   - P99：19394.4ms
+6. 系统吞吐量：0.1 req/s
+================================
+
+
+调整server worker数为2   单并发性能基本没区别 server会多出2个进程 单进程都是30核上下
+2065889 root      20   0   16.4g   1.9g   1.4g R  2991   1.5  12:05.74 gunicorn
+2065892 root      20   0   16.4g   2.0g   1.4g R  2572   1.6  11:58.23 gunicorn
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：500
+- 总耗时：93.95246185699943
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：1661.2 tokens/秒
+4. 首Token延迟(平均)：187.8ms
+5. 延迟分布：
+   - P50：182.6ms
+   - P95：198.4ms
+   - P99：309.1ms
+6. 系统吞吐量：5.3 req/s
+================================
+Embedding接口性能测试报告-10并发  看起来还不如单并发性能好
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：10
+- 总请求量：500
+- 总耗时：143.20895570599532
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：109.8 tokens/秒
+4. 首Token延迟(平均)：2841.8ms
+5. 延迟分布：
+   - P50：2583.7ms
+   - P95：4871.0ms
+   - P99：6282.2ms
+6. 系统吞吐量：0.4 req/s
+================================
+
+
+
+
+
+
+
+
+
+
+综上所述  CPU密集型应用  服务端 1worker效率最高   2worker时就会发生cpu争抢  效率反而不如1worker
+
+最佳配置
+gunicorn --bind 0.0.0.0:35000 --workers 1  --timeout 300 main:app
+
+
+
+=========================测试v7 GPU功能===================================
+ docker run  --gpus '"device=0"'   --network=host -v /root/yangyong/:/app/     yytest_sentence_reranker:v1 gunicorn --bind 0.0.0.0:35000 --workers 1  --timeout 180 main_v7:app
+
+GPU 就是牛逼   运行时CPU核数在1核上下
+
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：1
+- 总请求量：500
+- 总耗时：8.326894505007658
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：18795.0 tokens/秒
+4. 首Token延迟(平均)：16.6ms
+5. 延迟分布：
+   - P50：16.2ms
+   - P95：18.7ms
+   - P99：24.6ms
+6. 系统吞吐量：60.2 req/s
+================================
+
+
+root@node3:/usr/local/bin# cat performance_report.txt
+Embedding接口性能测试报告
+================================
+基础配置：
+- 测试模型：inspur-bge-large-zh-v1.5
+- 并发数：100
+- 总请求量：500
+- 总耗时：8.547536227997625
+- 文本长度：240字符
+
+性能指标：
+1. 成功率：100.0%
+2. 总处理token数：156000
+3. 令牌速率：198.8 tokens/秒
+4. 首Token延迟(平均)：1569.3ms
+5. 延迟分布：
+   - P50：1523.9ms
+   - P95：2107.1ms
+   - P99：2391.1ms
+6. 系统吞吐量：0.6 req/s
+================================
+
+
+
+
+测试rerank 不用GPU 1worker
+Rerank接口性能测试报告
+================================
+测试配置：
+- 模型名称：inspur-bge-reranker-large
+- 并发数：100
+- 总请求量：500
+- 总耗时：43.602349387991126
+- 单请求文档数：5
+- 测试文档库：15个样例文档
+
+性能指标：
+1. 成功率：100.0%
+2. 处理文档总数：2500
+3. 文档处理速率：0.6 doc/s
+4. 请求平均延迟：7859.1ms
+5. 延迟分布：
+   - P50：8731.5ms
+   - P95：8871.6ms
+   - P99：8886.1ms
+6. 系统吞吐量：0.1 req/s
+================================
+Rerank接口性能测试报告----1并发
+================================
+测试配置：
+- 模型名称：inspur-bge-reranker-large
+- 并发数：1
+- 总请求量：500
+- 总耗时：48.60632737900596
+- 单请求文档数：5
+- 测试文档库：15个样例文档
+
+性能指标：
+1. 成功率：100.0%
+2. 处理文档总数：2500
+3. 文档处理速率：51.6 doc/s
+4. 请求平均延迟：97.0ms
+5. 延迟分布：
+   - P50：92.6ms
+   - P95：113.3ms
+   - P99：132.9ms
+6. 系统吞吐量：10.3 req/s
+================================
+
+
+
+
+用上GPU
+Rerank接口性能测试报告
+================================
+测试配置：
+- 模型名称：inspur-bge-reranker-large
+- 并发数：100
+- 总请求量：500
+- 总耗时：13.48608270099794
+- 单请求文档数：5
+- 测试文档库：15个样例文档
+
+性能指标：
+1. 成功率：100.0%
+2. 处理文档总数：2500
+3. 文档处理速率：2.0 doc/s
+4. 请求平均延迟：2439.4ms
+5. 延迟分布：
+   - P50：2710.6ms
+   - P95：2735.3ms
+   - P99：2738.6ms
+6. 系统吞吐量：0.4 req/s
+================================
+Rerank接口性能测试报告---1并发
+================================
+测试配置：
+- 模型名称：inspur-bge-reranker-large
+- 并发数：1
+- 总请求量：500
+- 总耗时：14.185935621993849
+- 单请求文档数：5
+- 测试文档库：15个样例文档
+
+性能指标：
+1. 成功率：100.0%
+2. 处理文档总数：2500
+3. 文档处理速率：177.2 doc/s
+4. 请求平均延迟：28.2ms
+5. 延迟分布：
+   - P50：28.0ms
+   - P95：29.2ms
+   - P99：43.6ms
+6. 系统吞吐量：35.4 req/s
+================================
+
+
+
+
+
+
+
+
+
+==============阶段性成果====================================
+
+CPU模式
+
+docker run   --network=host -v /root/yangyong/:/app/     yytest_sentence_reranker:v1 gunicorn --bind 0.0.0.0:35000 --workers 1  --timeout 300 main_v7:app
+
+
+GPU模式
+docker run  --gpus '"device=0"'   --network=host -v /root/yangyong/:/app/     yytest_sentence_reranker:v1 gunicorn --bind 0.0.0.0:35000 --workers 1  --timeout 300 main_v7:app
+
+=============================================================
+FROM yytest_sentence_bench:v1
+
+WORKDIR /usr/local/bin/
+
+COPY main_v7.py /usr/local/bin/
+#COPY benchmark_rerank.py /usr/local/bin/
+
+# 暴露端口
+EXPOSE 35000
+
+# 启动命令
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:35000", \
+    "--workers", "1", \
+    "--timeout", "300", \
+    "main_v7:app"]
+
+=================================================================
+
+docker build --network=host -t incloud_sentence_transformer:v1 .
+
+docker run \
+    --network=host \
+	-v /root/yangyong/:/app/ \
+    incloud_sentence_transformer:v1  
+	
+---------------兼容api-key----------------------
+ docker run  -e API_KEYS="key1,key2,key3"  --network=host -v /root/yangyong/:/models/     yytest_sentence_reranker:v1 gunicorn --bind 0.0.0.0:35000 --workers 1  --timeout 300 main_v7:app
+ 
+   curl -X POST http://10.68.23.33:35000/v1/rerank \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer key1" \
+  -d '{
+    "query": "What is deep learning?",
+    "documents": [
+      "Deep learning is a machine learning technique...",
+      "Newton discovered the laws of motion...",
+      "Neural networks are inspired by biological systems..."
+    ],
+    "model": "inspur-bge-reranker-large",
+    "top_n": 2
+  }'
+  
+ 完美
+ 
+ curl -X POST http://10.68.23.33:35000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer key1" \
+  -d '{
+    "input": "Hello, world!",
+    "model": "inspur-bge-large-zh-v1.5"
+  }'
